@@ -4,7 +4,6 @@ const Core = require("../lib/core.js")
 const _ = require('underscore')
 
 exports.authorization = async function (req, res) {
-  console.log('SECRET', process.env.SECRET)
   const email = req.body.email;
   const password = req.body.password;
 
@@ -27,10 +26,7 @@ exports.authorization = async function (req, res) {
           token: token
         });
       }
-    } catch(err) {
-      console.log('error', err)
-      res.status(502).json({ message: err })
-    }
+    } catch(err) { res.status(502).json({ message: err.message }) }
   } else {
     res.status(400).json({
       success: false,
@@ -40,9 +36,8 @@ exports.authorization = async function (req, res) {
 }
 
 exports.createUser = async function (req, res) {
-  const params = req.body
-  if (params && params.firstName && params.email && params.password) {
-    const email = params.email.toLowerCase()
+  if (req.body && req.body.firstName && req.body.email && req.body.password) {
+    const email = req.body.email.toLowerCase()
     if (Core.validateEmail(email)) {
       try {
         const userWithEmail = await User.findOne({ 'email': { $regex: new RegExp('' + params.email, 'i') } })
@@ -51,71 +46,69 @@ exports.createUser = async function (req, res) {
         }
 
         const userData = {
-          firstName: params.firstName,
-          lastName: params.lastName || '',
-          email: params.email,
-          password: params.password,
-          gender: params.gender || ''
+          firstName: req.body.firstName,
+          lastName: req.body.lastName || '',
+          email: req.body.email,
+          password: req.body.password,
+          gender: req.body.gender || ''
         }
         var addUser = new User(userData)
 
         addUser.save((err, result) => {
           if (err) res.send(err)
-          else {
-            console.log("saved data", result)
-            return res.send(_.pick(result, ['_id', 'email', 'firstName', 'lastName', 'gender']))
-          }
+          else return res.send(_.pick(result, ['_id', 'email', 'firstName', 'lastName', 'gender']))
         })
-      } catch(err) {
-        res.status(502).json({ message: err })
-      }
-    } else {
-      return res.status(400).send({ message: 'Please enter valid email' })
-    }
-  } else {
-    return res.status(400).send({ message: 'Invalid details' })
-  }
+      } catch(err) { res.status(502).json({ message: err.message }) }
+    } else return res.status(400).send({ message: 'Please enter valid email' })
+  } else return res.status(400).send({ message: 'Invalid details' })
 }
 
 exports.updateUser = async function (req, res) {
-  const params = req.body
   try {
-    if (params && params.email) {
-      if (Core.validateEmail(params.email)) {
-        const userWithEmail = await  User.findOne({ _id: { $ne: req.decoded.userId }, 'email': { $regex: new RegExp('' + params.email, 'i') } })
+    if (req.body && req.body.email) {
+      if (Core.validateEmail(req.body.email)) {
+        const userWithEmail = await  User.findOne({ _id: { $ne: req.decoded.userId }, 'email': { $regex: new RegExp('' + req.body.email, 'i') } })
         if (userWithEmail) {
           return res.status(409).send({ message: 'Email already exists' })
         }
-      } else {
-        return res.status(400).send({ message: 'Invalid details' })
-      }
+      } else return res.status(400).send({ message: 'Invalid details' })
     }
 
     const userData = {}
-    if (params.email) userData['email'] = params.email
-    if (params.firstName) userData['firstName'] = params.firstName
-    if (params.lastName) userData['lastName'] = params.lastName
-    if (params.gender) userData['gender'] = params.gender
+    if (req.body.email) userData['email'] = req.body.email
+    if (req.body.firstName) userData['firstName'] = req.body.firstName
+    if (req.body.lastName) userData['lastName'] = req.body.lastName
+    if (req.body.gender) userData['gender'] = req.body.gender
 
     const updated = await User.updateOne({ _id: req.decoded.userId }, {
       $set: userData
     })
 
-    if (updated) {
-      return res.send(await User.findOne({ _id: req.decoded.userId }, { password: 0 }))
-    } else {
-      return res.status(400).send({ message: 'Invalid details' })
-    }
-  } catch(err) {
-    res.status(502).json({ message: err })
-  }
+    if (updated) return res.send(await User.findOne({ _id: req.decoded.userId }, { password: 0 }))
+    else return res.status(400).send({ message: 'Invalid details' })
+  } catch(err) { res.status(502).json({ message: err.message }) }
 }
 
 exports.getUserDetails = async function (req, res) {
-  console.log("user", req.body)
-  try {
-    res.send(await User.findOne({ _id: req.decoded.userId }, { password: 0 }))
-  } catch(err) {
-    res.status(502).json({ message: err })
-  }
+  try { res.send(await User.findOne({ _id: req.decoded.userId }, { password: 0 })) } 
+  catch(err) { res.status(502).json({ message: err.message }) }
+}
+
+exports.changePassword = async function (req, res) {
+  if (req.body.oldPassword && req.body.newPassword) {
+    try {
+      const userObj = await User.findOne({ _id: req.decoded.userId })
+      if(userObj && userObj._id) {
+        var validPassword = Core.comparePassword(req.body.oldPassword, userObj.password);
+        if (!validPassword) return res.status(400).send({ message: 'Incorrect current password' })
+        else {
+          var password = Core.encryptPassword(req.body.newPassword)
+          try {
+            await User.updateOne({ _id: userObj._id }, { $set: { password } })
+            return res.status(200).send({ message: 'Password changed successfully' })
+          } catch (err) { return res.status(502).send({ message: err.message }) }
+        }
+      } else return res.status(400).send({ message: 'Invalid details' })
+    } catch (err) { return res.status(502).send({ message: err.message }) }  
+  } else return res.status(400).send({ message: 'Invalid details' })
 }
