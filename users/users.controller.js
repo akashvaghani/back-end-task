@@ -9,7 +9,7 @@ exports.authorization = async function (req, res) {
 
   if (email && password) {
     try {
-      const user = await User.findOne({ 'email': { $regex: new RegExp('' + email, 'i') } })
+      const user = await User.findOne({ 'email': { $regex: new RegExp('' + email, 'i') } }, { _id: 1, password: 1 })
       if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
       var validPassword = Core.comparePassword(password, user.password);
@@ -36,21 +36,22 @@ exports.authorization = async function (req, res) {
 }
 
 exports.createUser = async function (req, res) {
-  if (req.body && req.body.firstName && req.body.email && req.body.password) {
+  const params = req.body
+  if (params && params.firstName && params.email && params.password) {
     const email = req.body.email.toLowerCase()
     if (Core.validateEmail(email)) {
       try {
-        const userWithEmail = await User.findOne({ 'email': { $regex: new RegExp('' + params.email, 'i') } })
+        const userWithEmail = await User.findOne({ 'email': { $regex: new RegExp('' + params.email, 'i') } }, { _id: 1 })
         if (userWithEmail) {
           return res.status(409).send({ message: 'Email already exists' })
         }
 
         const userData = {
-          firstName: req.body.firstName,
-          lastName: req.body.lastName || '',
-          email: req.body.email,
-          password: req.body.password,
-          gender: req.body.gender || ''
+          firstName: params.firstName,
+          lastName: params.lastName || '',
+          email: params.email,
+          password: params.password,
+          gender: params.gender || ''
         }
         var addUser = new User(userData)
 
@@ -64,10 +65,11 @@ exports.createUser = async function (req, res) {
 }
 
 exports.updateUser = async function (req, res) {
+  const params = req.body
   try {
-    if (req.body && req.body.email) {
-      if (Core.validateEmail(req.body.email)) {
-        const userWithEmail = await  User.findOne({ _id: { $ne: req.decoded.userId }, 'email': { $regex: new RegExp('' + req.body.email, 'i') } })
+    if (params && params.email) {
+      if (Core.validateEmail(params.email)) {
+        const userWithEmail = await  User.findOne({ _id: { $ne: req.decoded.userId }, 'email': { $regex: new RegExp('' + params.email, 'i') } }, { _id: 1 })
         if (userWithEmail) {
           return res.status(409).send({ message: 'Email already exists' })
         }
@@ -75,10 +77,10 @@ exports.updateUser = async function (req, res) {
     }
 
     const userData = {}
-    if (req.body.email) userData['email'] = req.body.email
-    if (req.body.firstName) userData['firstName'] = req.body.firstName
-    if (req.body.lastName) userData['lastName'] = req.body.lastName
-    if (req.body.gender) userData['gender'] = req.body.gender
+    if (params.email) userData['email'] = params.email
+    if (params.firstName) userData['firstName'] = params.firstName
+    if (params.lastName) userData['lastName'] = params.lastName
+    if (params.gender) userData['gender'] = params.gender
 
     const updated = await User.updateOne({ _id: req.decoded.userId }, {
       $set: userData
@@ -95,20 +97,24 @@ exports.getUserDetails = async function (req, res) {
 }
 
 exports.changePassword = async function (req, res) {
-  if (req.body.oldPassword && req.body.newPassword) {
+  const params = req.body
+  if (params.oldPassword && params.newPassword) {
     try {
-      const userObj = await User.findOne({ _id: req.decoded.userId })
-      if(userObj && userObj._id) {
-        var validPassword = Core.comparePassword(req.body.oldPassword, userObj.password);
-        if (!validPassword) return res.status(400).send({ message: 'Incorrect current password' })
-        else {
-          var password = Core.encryptPassword(req.body.newPassword)
-          try {
-            await User.updateOne({ _id: userObj._id }, { $set: { password } })
-            return res.status(200).send({ message: 'Password changed successfully' })
-          } catch (err) { return res.status(502).send({ message: err.message }) }
-        }
-      } else return res.status(400).send({ message: 'Invalid details' })
+      var isValidPassword = Core.isValidPassword(params.newPassword)
+      if (isValidPassword) {
+        const userObj = await User.findOne({ _id: req.decoded.userId })
+        if(userObj && userObj._id) {
+          var validPassword = Core.comparePassword(params.oldPassword, userObj.password);
+          if (!validPassword) return res.status(400).send({ message: 'Incorrect current password' })
+          else {
+            var password = Core.encryptPassword(params.newPassword)
+            try {
+              await User.updateOne({ _id: userObj._id }, { $set: { password } })
+              return res.status(200).send({ message: 'Password changed successfully' })
+            } catch (err) { return res.status(502).send({ message: err.message }) }
+          }
+        } else return res.status(400).send({ message: 'Invalid details' })
+      } else return res.status(400).send({ message: 'Password should be contains at least 1 number 1 character and 1 alphabet' })
     } catch (err) { return res.status(502).send({ message: err.message }) }  
   } else return res.status(400).send({ message: 'Invalid details' })
 }
